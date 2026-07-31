@@ -20,9 +20,9 @@ function goto {
         $json.PSObject.Properties | ForEach-Object { $bookmarks[$_.Name] = $_.Value }
     } else {
         $bookmarks = @{
-            "desktop"   = "C:\Users\jimbo\OneDrive\Desktop"
-            "downloads" = "C:\Users\jimbo\Downloads"
-            "documents" = "C:\Users\jimbo\Documents"
+            "desktop"   = "$HOME\Desktop"
+            "downloads" = "$HOME\Downloads"
+            "documents" = "$HOME\Documents"
         }
     }
 
@@ -59,7 +59,7 @@ function goto {
     # Opens the README file
     # Usage:   goto -help
     elseif ($help) {
-        Invoke-Item "C:\Users\jimbo\OneDrive\Desktop\scripts\goto\README.md"
+        Invoke-Item "$PSScriptRoot\README.md"
     }
     # Default: treat $name as a bookmark and navigate to it
     # Usage:   goto <name>
