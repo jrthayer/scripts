@@ -4,25 +4,35 @@ A PowerShell bookmark manager for quickly navigating to saved directories.
 
 ## Connecting to Your PowerShell Profile
 
-To make the `goto` command available every time you open PowerShell, you need to dot-source the script from your profile.
+`goto` is a function defined inside `goto.ps1`, so the script has to be **dot-sourced** into your session. The easiest way is to do this from your PowerShell profile so it loads every time you open PowerShell.
 
-1. Open your PowerShell profile in a text editor:
-  
+1. Make sure your profile exists (this creates the file and any missing parent folders):
+
+   ```powershell
+   if (-not (Test-Path $PROFILE)) { New-Item -ItemType File -Path $PROFILE -Force }
+   ```
+
+2. Open your profile in a text editor:
+
+   ```powershell
    notepad $PROFILE
+   ```
 
-   > If the file doesn't exist yet, Notepad will ask if you want to create it — click **Yes**.
+3. Add the following line, pointing at wherever you saved the script:
 
-2. Add the following line to the file(where you saved the script file):
+   ```powershell
+   . "$HOME\Documents\programming\scripts\goto\goto.ps1"
+   ```
 
-   . "C:\Users\<user_name>\OneDrive\Desktop\scripts\goto\goto.ps1"
+   > **Important:** The leading `. ` (dot followed by a space) is required. Running `.\goto.ps1` on its own defines `goto` only inside the script's scope, and it disappears as soon as the script finishes.
 
+4. Save and close the file, then restart PowerShell (or run `. $PROFILE`).
 
-3. Save and close the file, then restart PowerShell.
-
-> **Note:** If you get an error about execution policy, run this once in PowerShell as Administrator:
-
+> **Note:** If you get an error about execution policy, run this once:
+>
+> ```powershell
 > Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
-
+> ```
 
 ---
 
@@ -30,31 +40,38 @@ To make the `goto` command available every time you open PowerShell, you need to
 
 ### Navigate to a bookmark
 
-Usage:   goto <name>
-Example: goto scripts
-
+```powershell
+goto <name>
+goto scripts
+```
 
 ### Add a bookmark (saves current directory)
 
-Usage:   goto -add <name>
-Example: goto -add scripts
-
+```powershell
+goto -add <name>
+goto -add scripts
+```
 
 ### Remove a bookmark
 
-Usage:   goto -remove <name>
-Example: goto -remove scripts
-
+```powershell
+goto -remove <name>
+goto -remove scripts
+```
 
 ### List all bookmarks
 
-Usage:   goto -list
-
+```powershell
+goto -list
+```
 
 ### Open this help file
 
-Usage:   goto -help
+```powershell
+goto -help
+```
 
+Press **Tab** after `goto` to autocomplete bookmark names.
 
 ---
 
@@ -63,8 +80,11 @@ Usage:   goto -help
 Bookmarks are saved to `~\.goto_bookmarks.json` and persist between sessions.
 
 ### Default bookmarks
-| Name      | Path                                  |
-|-----------|---------------------------------------|
-| desktop   -> C:\Users\jimbo\OneDrive\Desktop  |
-| downloads -> C:\Users\jimbo\Downloads         |
-| documents -> C:\Users\jimbo\Documents         |
+
+These are available from the start. The first time you add or remove a bookmark, they are saved to the bookmark file together with your change.
+
+| Name      | Path               |
+|-----------|--------------------|
+| desktop   | `$HOME\Desktop`    |
+| downloads | `$HOME\Downloads`  |
+| documents | `$HOME\Documents`  |
