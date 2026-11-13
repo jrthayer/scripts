@@ -12,7 +12,7 @@ To make the `goto` command available every time you open PowerShell, you need to
 
    > If the file doesn't exist yet, Notepad will ask if you want to create it — click **Yes**.
 
-2. Add the following line to the file:
+2. Add the following line to the file(where you saved the script file):
 
    . "C:\Users\<user_name>\OneDrive\Desktop\scripts\goto\goto.ps1"
 
