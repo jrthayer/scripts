@@ -65,10 +65,18 @@ goto -remove scripts
 goto -list
 ```
 
-### Open this help file
+### Show help in the terminal
 
 ```powershell
-goto -help
+goto -help            # short list of commands
+goto -help -usage     # details and examples for every command
+goto -help -add       # details for one command (also -remove, -list, -tips)
+```
+
+### Show tips
+
+```powershell
+goto -tips
 ```
 
 Press **Tab** after `goto` to autocomplete bookmark names.
