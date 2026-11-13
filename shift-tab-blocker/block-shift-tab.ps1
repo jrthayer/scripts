@@ -14,7 +14,6 @@ Add-Type -ReferencedAssemblies System.Windows.Forms, System.Drawing -TypeDefinit
 using System;
 using System.Diagnostics;
 using System.Drawing;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
@@ -81,63 +80,11 @@ public static class ShiftTabHook
     }
 }
 
-// Shows a balloon/toast using our own icon instead of the stock system icons.
-public static class TrayBalloon
+public static class NativeMethods
 {
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    private struct NOTIFYICONDATA
-    {
-        public int cbSize;
-        public IntPtr hWnd;
-        public int uID;
-        public int uFlags;
-        public int uCallbackMessage;
-        public IntPtr hIcon;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string szTip;
-        public int dwState;
-        public int dwStateMask;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string szInfo;
-        public int uTimeoutOrVersion;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)] public string szInfoTitle;
-        public int dwInfoFlags;
-        public Guid guidItem;
-        public IntPtr hBalloonIcon;
-    }
-
-    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-    private static extern bool Shell_NotifyIcon(int dwMessage, ref NOTIFYICONDATA lpData);
-
-    private const int NIM_MODIFY = 1;
-    private const int NIF_INFO = 0x10;
-    private const int NIIF_USER = 0x4;
-    private const int NIIF_NOSOUND = 0x10;
-    private const int NIIF_LARGE_ICON = 0x20;
-
-    public static bool Show(NotifyIcon ni, string title, string text, Icon icon)
-    {
-        try
-        {
-            BindingFlags bf = BindingFlags.NonPublic | BindingFlags.Instance;
-            NativeWindow win = (NativeWindow)typeof(NotifyIcon).GetField("window", bf).GetValue(ni);
-            int id = (int)typeof(NotifyIcon).GetField("id", bf).GetValue(ni);
-
-            NOTIFYICONDATA d = new NOTIFYICONDATA();
-            d.cbSize = Marshal.SizeOf(typeof(NOTIFYICONDATA));
-            d.hWnd = win.Handle;
-            d.uID = id;
-            d.uFlags = NIF_INFO;
-            d.szInfoTitle = title;
-            d.szInfo = text;
-            d.dwInfoFlags = NIIF_USER | NIIF_LARGE_ICON | NIIF_NOSOUND;
-            d.hBalloonIcon = icon.Handle;
-            d.uTimeoutOrVersion = 1000;
-            return Shell_NotifyIcon(NIM_MODIFY, ref d);
-        }
-        catch
-        {
-            return false;
-        }
-    }
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool DestroyIcon(IntPtr hIcon);
 }
 
 // Dark colors for the right-click menu.
@@ -216,45 +163,66 @@ function Get-Theme {
 # Icons: put on.ico / off.ico (or on.png / off.png) in the icons folder to
 # override. Otherwise a built-in icon is drawn to suit the taskbar theme.
 function New-DrawnIcon([bool]$on, [bool]$dark) {
-    $bmp = New-DrawnBitmap $on $dark 32
-    [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+    ConvertTo-Icon (New-DrawnBitmap $on $dark 32)
+}
+
+# Turns a bitmap into an Icon that owns its own handle, then frees the
+# temporary HICON from GetHicon() and the bitmap so no GDI handles leak.
+function ConvertTo-Icon([System.Drawing.Bitmap]$bmp) {
+    $h = $bmp.GetHicon()
+    try {
+        $tmp = [System.Drawing.Icon]::FromHandle($h)
+        $icon = $tmp.Clone()
+        $tmp.Dispose()
+        $icon
+    } finally {
+        [void][NativeMethods]::DestroyIcon($h)
+        $bmp.Dispose()
+    }
 }
 
 # Draws the key icon at any size (artwork is laid out on a 32x32 grid).
 function New-DrawnBitmap([bool]$on, [bool]$dark, [int]$size) {
     $bmp = New-Object System.Drawing.Bitmap $size, $size
     $g = [System.Drawing.Graphics]::FromImage($bmp)
-    $g.ScaleTransform($size / 32.0, $size / 32.0)
-    $g.SmoothingMode = 'AntiAlias'
-    $g.TextRenderingHint = 'AntiAliasGridFit'
+    $disposables = New-Object System.Collections.Generic.List[System.IDisposable]
+    try {
+        $g.ScaleTransform($size / 32.0, $size / 32.0)
+        $g.SmoothingMode = 'AntiAlias'
+        $g.TextRenderingHint = 'AntiAliasGridFit'
 
-    # Same gray key for ON and OFF; ON adds the red "no" sign on top.
-    if ($dark) {
-        $bg = [System.Drawing.Color]::FromArgb(110, 110, 110)
-        $fg = [System.Drawing.Color]::FromArgb(220, 220, 220)
-    } else {
-        $bg = [System.Drawing.Color]::FromArgb(150, 150, 150)
-        $fg = [System.Drawing.Color]::White
+        # Same gray key for ON and OFF; ON adds the red "no" sign on top.
+        if ($dark) {
+            $bg = [System.Drawing.Color]::FromArgb(110, 110, 110)
+            $fg = [System.Drawing.Color]::FromArgb(220, 220, 220)
+        } else {
+            $bg = [System.Drawing.Color]::FromArgb(150, 150, 150)
+            $fg = [System.Drawing.Color]::White
+        }
+
+        $path = New-Object System.Drawing.Drawing2D.GraphicsPath; $disposables.Add($path)
+        $r = 8
+        $path.AddArc(1, 1, $r, $r, 180, 90); $path.AddArc(31 - $r, 1, $r, $r, 270, 90)
+        $path.AddArc(31 - $r, 31 - $r, $r, $r, 0, 90); $path.AddArc(1, 31 - $r, $r, $r, 90, 90)
+        $path.CloseFigure()
+        $bgBrush = New-Object System.Drawing.SolidBrush $bg; $disposables.Add($bgBrush)
+        $g.FillPath($bgBrush, $path)
+
+        $font = New-Object System.Drawing.Font('Segoe UI Symbol', 13, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel); $disposables.Add($font)
+        $fmt = New-Object System.Drawing.StringFormat; $disposables.Add($fmt)
+        $fmt.Alignment = 'Center'; $fmt.LineAlignment = 'Center'
+        $fgBrush = New-Object System.Drawing.SolidBrush $fg; $disposables.Add($fgBrush)
+        $g.DrawString([string][char]0x21E7 + [char]0x21E5, $font, $fgBrush, (New-Object System.Drawing.RectangleF(0, 0, 32, 32)), $fmt)
+
+        if ($on) {
+            $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(230, 60, 60), 3); $disposables.Add($pen)
+            $g.DrawEllipse($pen, 3, 3, 26, 26)
+            $g.DrawLine($pen, 8, 24, 24, 8)
+        }
+    } finally {
+        foreach ($d in $disposables) { $d.Dispose() }
+        $g.Dispose()
     }
-
-    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
-    $r = 8
-    $path.AddArc(1, 1, $r, $r, 180, 90); $path.AddArc(31 - $r, 1, $r, $r, 270, 90)
-    $path.AddArc(31 - $r, 31 - $r, $r, $r, 0, 90); $path.AddArc(1, 31 - $r, $r, $r, 90, 90)
-    $path.CloseFigure()
-    $g.FillPath((New-Object System.Drawing.SolidBrush $bg), $path)
-
-    $font = New-Object System.Drawing.Font('Segoe UI Symbol', 13, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
-    $fmt = New-Object System.Drawing.StringFormat
-    $fmt.Alignment = 'Center'; $fmt.LineAlignment = 'Center'
-    $g.DrawString([string][char]0x21E7 + [char]0x21E5, $font, (New-Object System.Drawing.SolidBrush $fg), (New-Object System.Drawing.RectangleF(0, 0, 32, 32)), $fmt)
-
-    if ($on) {
-        $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(230, 60, 60), 3)
-        $g.DrawEllipse($pen, 3, 3, 26, 26)
-        $g.DrawLine($pen, 8, 24, 24, 8)
-    }
-    $g.Dispose()
     $bmp
 }
 
@@ -269,9 +237,8 @@ function Get-TrayIcon([string]$name, [bool]$on, [bool]$dark) {
         try {
             if ($file -like '*.ico') { return New-Object System.Drawing.Icon($file, 32, 32) }
             $img = [System.Drawing.Image]::FromFile($file)
-            $bmp = New-Object System.Drawing.Bitmap($img, 32, 32)
-            $img.Dispose()
-            return [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+            try { $bmp = New-Object System.Drawing.Bitmap($img, 32, 32) } finally { $img.Dispose() }
+            return ConvertTo-Icon $bmp
         } catch { }
     }
     New-DrawnIcon $on $dark
@@ -298,7 +265,11 @@ function Get-HeaderPng([bool]$dark) {
         if (Test-Path $ico) {
             try {
                 $out = Join-Path $dataDir "header-custom-$n.png"
-                (New-Object System.Drawing.Icon($ico, 64, 64)).ToBitmap().Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
+                $icon = New-Object System.Drawing.Icon($ico, 64, 64)
+                try {
+                    $bmp = $icon.ToBitmap()
+                    try { $bmp.Save($out, [System.Drawing.Imaging.ImageFormat]::Png) } finally { $bmp.Dispose() }
+                } finally { $icon.Dispose() }
                 return $out
             } catch { }
         }
@@ -307,12 +278,19 @@ function Get-HeaderPng([bool]$dark) {
     # so a new design needs a new file name to show up.
     $theme = if ($dark) { 'dark' } else { 'light' }
     $tmp = Join-Path $dataDir "header-$theme.tmp.png"
-    (New-DrawnBitmap $true $dark 64).Save($tmp, [System.Drawing.Imaging.ImageFormat]::Png)
+    $bmp = New-DrawnBitmap $true $dark 64
+    try { $bmp.Save($tmp, [System.Drawing.Imaging.ImageFormat]::Png) } finally { $bmp.Dispose() }
     $md5 = [System.Security.Cryptography.MD5]::Create()
-    $hash = ([System.BitConverter]::ToString($md5.ComputeHash([System.IO.File]::ReadAllBytes($tmp))) -replace '-', '').Substring(0, 8)
-    $md5.Dispose()
-    $out = Join-Path $dataDir "header-$theme-$hash.png"
+    try {
+        $hash = ([System.BitConverter]::ToString($md5.ComputeHash([System.IO.File]::ReadAllBytes($tmp))) -replace '-', '').Substring(0, 8)
+    } finally { $md5.Dispose() }
+    $outName = "header-$theme-$hash.png"
+    $out = Join-Path $dataDir $outName
     Move-Item -Path $tmp -Destination $out -Force
+    # Remove header PNGs left over from older designs of this theme.
+    Get-ChildItem -Path $dataDir -Filter "header-$theme-*.png" -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -ne $outName } |
+        Remove-Item -Force -ErrorAction SilentlyContinue
     $out
 }
 
@@ -350,10 +328,7 @@ function Show-Notification([string]$title, [string]$text) {
         } catch { }
     }
     # Fallback: classic tray balloon.
-    $icon = if ([ShiftTabHook]::Enabled) { $script:iconOn } else { $script:iconOff }
-    if (-not [TrayBalloon]::Show($tray, $title, $text, $icon)) {
-        $tray.ShowBalloonTip(1000, $title, $text, [System.Windows.Forms.ToolTipIcon]::None)
-    }
+    $tray.ShowBalloonTip(1000, $title, $text, [System.Windows.Forms.ToolTipIcon]::None)
 }
 
 $tray = New-Object System.Windows.Forms.NotifyIcon
@@ -373,12 +348,17 @@ function Update-Theme {
     $key = "$($t.Taskbar)|$($t.Apps)"
     if ($key -eq $script:themeKeyStr) { return }
     $script:themeKeyStr = $key
+    $oldOn  = $script:iconOn
+    $oldOff = $script:iconOff
     $script:iconOn  = Get-TrayIcon 'on'  $true  $t.Taskbar
     $script:iconOff = Get-TrayIcon 'off' $false $t.Taskbar
     $menu.Renderer = New-Object ThemedMenuRenderer($t.Apps)
     $menu.BackColor = if ($t.Apps) { [System.Drawing.Color]::FromArgb(43, 43, 43) } else { [System.Drawing.SystemColors]::Menu }
     Register-ToastApp $t.Taskbar
     Update-Tray
+    # The tray now uses the new icons, so the old ones can be freed.
+    if ($null -ne $oldOn)  { $oldOn.Dispose() }
+    if ($null -ne $oldOff) { $oldOff.Dispose() }
 }
 
 function Update-Tray {
@@ -418,7 +398,7 @@ $itemStartup.add_Click({
 $itemExit.add_Click({ [System.Windows.Forms.Application]::Exit() })
 
 $tray.add_MouseClick({
-    param($sender, $e)
+    param($src, $e)
     if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Left) { Switch-Blocking }
 })
 
@@ -442,6 +422,13 @@ finally {
     [ShiftTabHook]::Stop()
     $tray.Visible = $false
     $tray.Dispose()
+    if ($null -ne $script:iconOn)  { $script:iconOn.Dispose() }
+    if ($null -ne $script:iconOff) { $script:iconOff.Dispose() }
+    # The toast registration and header icon are recreated on every launch,
+    # so remove them on exit. The Run key is left alone: the user controls it
+    # from the "Run at startup" menu item.
+    Remove-Item -Path "HKCU:\Software\Classes\AppUserModelId\$appId" -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path $dataDir -Recurse -Force -ErrorAction SilentlyContinue
     $mutex.ReleaseMutex()
     $mutex.Dispose()
 }

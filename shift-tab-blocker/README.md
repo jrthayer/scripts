@@ -14,7 +14,7 @@ Double-click `start-hidden.vbs`. An icon appears in the notification area (syste
 
 Launching it again while it's running does nothing, so you never get a second copy.
 
-Notifications appear as "Shift+Tab blocker" with its own icon in the header. To make that work, the blocker registers itself with Windows under `HKCU\Software\Classes\AppUserModelId\ShiftTabBlocker` and stores the header icon in `%LOCALAPPDATA%\ShiftTabBlocker`. Delete both to remove it completely.
+Notifications appear as "Shift+Tab blocker" with its own icon in the header. To make that work, the blocker registers itself with Windows under `HKCU\Software\Classes\AppUserModelId\ShiftTabBlocker` and stores the header icon in `%LOCALAPPDATA%\ShiftTabBlocker`. Both are removed automatically when you exit the blocker. The only thing left behind is the `Run` entry, and only if **Run at startup** is turned on (untick it before exiting to remove it).
 
 ## Limits
 
