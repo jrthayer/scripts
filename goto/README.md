@@ -14,7 +14,7 @@ To make the `goto` command available every time you open PowerShell, you need to
 
 2. Add the following line to the file:
 
-   . "C:\Users\jimbo\OneDrive\Desktop\scripts\goto\goto.ps1"
+   . "C:\Users\<user_name>\OneDrive\Desktop\scripts\goto\goto.ps1"
 
 
 3. Save and close the file, then restart PowerShell.
